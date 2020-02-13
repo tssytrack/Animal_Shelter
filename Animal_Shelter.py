@@ -18,6 +18,8 @@ import scipy.cluster.hierarchy as sch
 from scipy import stats
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+from statsmodels.discrete.discrete_model import Logit
+from sklearn import preprocessing
 
 #%%
 class Cleaning:
@@ -53,8 +55,25 @@ class Cleaning:
         # object_list = self.summary()[self.summary()["dtypes"] == "object"].index.tolist()
         self.data[object_list] = self.data[object_list].astype("category")
 
-    def one_hot(self):
-        
+    def one_hot(self, target):
+        y = self.data[target]
+        x = self.data.drop(target, axis = 1)
+        nunique = x.nunique()
+        binary_list = nunique[nunique == 2].index.tolist()
+
+        dtypes = x.dtypes
+        object_list = dtypes[dtypes == "object"].index.tolist()
+
+        cat_list = binary_list + object_list
+        cat_list = list(set(cat_list))
+        x = pd.get_dummies(x, prefix_sep = "_", columns = cat_list, prefix = None)
+
+        self.data = pd.concat([x, y], axis = 1)
+
+        types = self.data.dtypes
+        one_hot = types[types == "uint8"].index.tolist()
+        self.level_freq = self.data[one_hot].sum(axis = 0)
+
 
     def imputation(self, threshold):
         self.get_summary()
@@ -188,7 +207,11 @@ cleaning = Cleaning("/Users/dauku/Desktop/Git/DavidKu_IAA2020/AnimalShelter/shel
 cleaning.get_summary()
 report = cleaning.summary
 
-cleaning.data = cleaning.data.drop(["PetID", "Adoption Date", "Name", ], axis = 1)
+colnames = cleaning.data.columns.tolist()
+colnames[-3] = "Adopted"
+cleaning.data.columns = colnames
+
+cleaning.data = cleaning.data.drop(["PetID", "Adoption Date", "Name"], axis = 1)
 cleaning.data["Breed"] = cleaning.data.loc[:, ["Primary Breed", "Secondary Breed"]].fillna("").sum(axis = 1)
 cleaning.data["Breed"] = cleaning.data.loc[:, "Primary Breed"].fillna("Missing") + "_" + cleaning.data.loc[:, "Secondary Breed"].fillna("")
 cleaning.data["Breed"] = cleaning.data["Breed"].str.replace(r"_$", "", regex = True).str.strip()
@@ -196,22 +219,49 @@ cleaning.data["Breed"] = cleaning.data["Breed"].str.replace(r"_$", "", regex = T
 cleaning.data["Color"] = cleaning.data["Primary Color"].fillna("Missing") + "_" + cleaning.data["Secondary Color"].fillna("")
 cleaning.data["Color"] = cleaning.data["Color"].str.replace(r"_$", "", regex = True).str.strip()
 
-cleaning.data = cleaning.data.drop(["Primary Breed", "Secondary Breed", "Primary Color", "Secondary Color", "Tertiary Color"], axis = 1)
+cleaning.data = cleaning.data.drop(["Primary Breed", "Secondary Breed", "Primary Color", "Secondary Color", "Tertiary Color", "Breed"], axis = 1)
 
-# datatype correction
-cleaning.categorical()
+# one-hot encoding
+cleaning.one_hot("Adopted")
 
 #%% modeling
 data = cleaning.data
+freq = cleaning.level_freq
 
 # days to adoption has the problem of complete seperation problem. Drop it for now
-data.drop("Days to Adoption", axis = 1, inplace = True)
-colnames = data.columns.tolist()
-colnames[-3] = "Adopted"
-data.columns = colnames
+data = data.drop(["Days to Adoption", "Zip Code"], axis = 1)
 
+from sklearn.model_selection import train_test_split
 x = data.drop("Adopted", axis = 1)
 y = data["Adopted"]
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size = 0.2, random_state = 55)
+
+
+label_encoder = preprocessing.LabelEncoder()
+y = label_encoder.fit_transform(y)
+y = pd.get_dummies(y, prefix_sep = "_", prefix = None)
+y = y[["YES", "NO"]].values.astype(float)
+
+# logit = sm.GLM(y, x, family = sm.families.Binomial())
+# Lasso_results = logit.fit_regularized(alpha = 100, L1_wt = 1)
+alpha = np.linspace(0, 100, 101)
+model = Logit(y_train, x_train)
+params = []
+for a in alpha:
+    rslt = model.fit_regularized(alpha = a, disp = False)
+    params.append(rslt.params)
+params = np.asarray(params)
+
+plt.figure(figsize = (10, 5))
+plt.clf()
+plt.axes([0.1, 0.1, 0.67, 0.8])
+ag = []
+for k in range()
+
+model = Logit(y_train, x_train)
+rslt1 = model.fit_regularized(alpha = 100, disp = False)
+rslt1.summary()
+prediction = rslt1.predict(exog = x_test)
 
 x1 = x.values
 d = sm.datasets.scotland.load(as_pandas = False)
